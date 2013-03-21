@@ -14,6 +14,13 @@ defaults = {
   "header_extensions": ['h', 'hpp', 'hh', 'hxx'],
   "source_extensions": ['c', 'cpp', 'cc', 'cxx', 'm', 'mm'],
 
+  # The difference allowed even in strict mode between the file ancestors and the candidate ancestors
+  # ex: file   =/my/path/to/file/src/foo.cpp            ancestor= my, path, to, file          steps=4
+  #     candate=/my/path/to/file/include/foo_bar/foo.h  ancestor= my, path, to, file, foo_bar steps=5
+  # offset = 0 , no switch 
+  # offset = 1   there is a switch
+  "offset": 0,
+
   # Useful for debugging
   "logging_enabled": False
 }
@@ -116,7 +123,7 @@ def find_in_directory(in_dir, in_file_info):
 #
 def strip_common_ancestors(in_path):
   for path in options["paths"]:
-    log("Checking if %s is in %r" % (path, in_path))
+    log("Checking if \"%s\" is in %r" % (path, in_path))
     if path not in in_path:
       continue
 
@@ -160,17 +167,22 @@ def find_counterpart(in_root, in_file_path, strict = True):
     ancestors = strip_common_ancestors(portable_split(os.path.dirname(file)))
     steps = len(ancestors)
 
-    log("Stripped candidate: %r" % ancestors)
+    log("Candidate's ancestors: %r (%d)" % (ancestors, steps))
 
     # Exclude any candidate which resides in a deeper or lesser directory level than the original file
-    if strict and steps != file_info["steps"]:
+    diff = abs(steps - file_info["steps"])
+    if strict and diff > options["offset"]:
       continue
+
+    count = (diff != 0) and min(steps, file_info["steps"]) -diff or steps
+    
+
 
     # Calculate the actual rank
     valid = True
-    for i in range(steps + 1):
+    for i in range(count + 1):
       i += 1
-      if file_info["ancestors"][file_info["steps"] - i] != ancestors[steps - i]:
+      if file_info["ancestors"][count - i] != ancestors[count - i]:
         valid = False
         break
 
@@ -186,7 +198,7 @@ def find_counterpart(in_root, in_file_path, strict = True):
   return candidate
 
 class SwitchScriptCommand(sublime_plugin.WindowCommand):
-  def run(self, options = { "header_extensions": [], "source_extensions": [], "paths": [], "excluded_paths": [], "logging_enabled": False }):
+  def run(self, options = { "header_extensions": [], "source_extensions": [], "paths": [], "excluded_paths": [], "offset": 0, "logging_enabled": False }):
     # Set user options
     assign_options(options)
 
@@ -213,7 +225,7 @@ class SwitchScriptCommand(sublime_plugin.WindowCommand):
     # See for more info: https://github.com/amireh/SwitchScript/issues/1
     root = None
     root_open = False # we need to account for the possibility of the file's folder not being open
-    for root in self.window.folders():
+    for root in self.window.folders():      
       if is_within(root, fname):
         root_open = True
         break
