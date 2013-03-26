@@ -1,8 +1,8 @@
 import sublime, sublime_plugin
 import os.path
 
-version  = "0.3"
-options  = {}
+version = "0.3"
+options = {}
 defaults = {
   # A list of all the directories that contain source and/or header files
   "paths": ['.', 'include', 'src'],
@@ -14,11 +14,11 @@ defaults = {
   "header_extensions": ['h', 'hpp', 'hh', 'hxx'],
   "source_extensions": ['c', 'cpp', 'cc', 'cxx', 'm', 'mm'],
 
-  # The difference allowed even in strict mode between the file ancestors and the candidate ancestors
-  # ex: file   =/my/path/to/file/src/foo.cpp            ancestor= my, path, to, file          steps=4
-  #     candate=/my/path/to/file/include/foo_bar/foo.h  ancestor= my, path, to, file, foo_bar steps=5
-  # offset = 0 , no switch 
-  # offset = 1   there is a switch
+  # The difference alowed even in strict mode between the file ancestors and the candidate ancestors
+  # ex: file =/my/path/to/file/src/foo.cpp ancestor= my, path, to, file steps=4
+  # candate=/my/path/to/file/include/foo_bar/foo.h ancestor= my, path, to, file, foo_bar steps=5
+  # offset = 0 , no switch
+  # offset = 1 there is a switch
   "offset": 0,
 
   # Useful for debugging
@@ -41,6 +41,7 @@ def assign_options(args):
 
   for entry in args:
     options[str(entry)] = args[str(entry)]
+
 
 def portable_split(path, debug=False):
     parts = []
@@ -78,7 +79,7 @@ def is_header(fname):
 # ie: /some/folder/nested/file.cpp is "in" /some/folder and /some/folder/nested
 def is_within(parent_path, file_path):
   parent_parts = portable_split(parent_path)
-  child_parts  = portable_split(file_path)
+  child_parts = portable_split(file_path)
 
   if len(parent_parts) > len(child_parts):
     return False
@@ -118,16 +119,29 @@ def find_in_directory(in_dir, in_file_info):
 
   return matched
 
-# Removes any ancestor folder according to those specified as file containers
-# from the given path
+# Split the path at the ancestor the closest to the file
+# Ex1: options["path"] = ['foo', 'bar']
+#      in_path = [ 'my', 'foo', 'bar', 'src']
+#      out : in_path = [ 'my', 'foo']
 #
+# Ex2: options["path"] = ['src, foo', 'bar']
+#      in_path = [ 'the', 'src', 'path', 'to', 'my', 'src', 'file']
+#      out : in_path = [ 'the', 'src', 'path', 'to', 'my']
 def strip_common_ancestors(in_path):
+  # find the item closest to the file name
+  log("strip_common_ancestors: in_path: %s" % in_path)
+  idx = -1
   for path in options["paths"]:
     log("Checking if \"%s\" is in %r" % (path, in_path))
-    if path not in in_path:
-      continue
+    if path in in_path:
+      i = in_path.index(path)
+      log(" Found at index %d" % i)
+      if i and i > idx:
+        idx = i
 
-    in_path = filter(lambda a: a != path, in_path)
+  if idx != -1:
+    in_path = in_path[:idx]
+    log("The stripped: in_path: %s" % in_path )
 
   return in_path
 
@@ -174,17 +188,28 @@ def find_counterpart(in_root, in_file_path, strict = True):
     if strict and diff > options["offset"]:
       continue
 
-    count = (diff != 0) and min(steps, file_info["steps"]) -diff or steps
-    
+    count = (diff != 0) and min(steps, file_info["steps"]) or steps
 
 
+    log ("Count: %d  diff: %d" % (count, diff))
+
+    log("File's ancestors     : %r (%d)" % (file_info["ancestors"], file_info["steps"]))
+    log("Candidate's ancestors: %r (%d)" % (ancestors, steps))
     # Calculate the actual rank
-    valid = True
-    for i in range(count + 1):
-      i += 1
-      if file_info["ancestors"][count - i] != ancestors[count - i]:
-        valid = False
-        break
+    valid = False
+    for o in range(options["offset"]-diff+1):
+      c = count - o;
+      log("Offset: %d  count: %d" % (o, c))
+      for i in range(c):
+        i += 1
+        log ("Check %s againts %s" % (file_info["ancestors"][c - i], ancestors[c - i]))
+        if file_info["ancestors"][c - i] != ancestors[c - i]:
+          log ("Not valid at idx: %d" % (c-i))
+          break
+      else:
+        valid = True;
+      if valid:
+        break;
 
     if strict and not valid:
       continue
@@ -204,6 +229,7 @@ class SwitchScriptCommand(sublime_plugin.WindowCommand):
 
     # Get the current active file name and active folder
     fname = self.window.active_view().file_name()
+    log("Current active file: %s" % fname)
     if not fname:
       log("Can not switch script, file name can not be retrieved. Is a file currently open and active?")
       return
@@ -225,7 +251,7 @@ class SwitchScriptCommand(sublime_plugin.WindowCommand):
     # See for more info: https://github.com/amireh/SwitchScript/issues/1
     root = None
     root_open = False # we need to account for the possibility of the file's folder not being open
-    for root in self.window.folders():      
+    for root in self.window.folders():
       if is_within(root, fname):
         root_open = True
         break
@@ -259,3 +285,22 @@ class SwitchScriptCommand(sublime_plugin.WindowCommand):
       log("Switching script %s in %s" % (fname, root))
     else:
       log("Unable to switch script, can not find a suitable match for: %s" % (fname))
+
+
+
+
+
+if __name__ == "__main__":
+  import sys
+
+  scc = SwitchScriptCommand()
+  scc.run({"logging_enabled": True})
+
+
+
+# Test 1
+#  src="c:\src\vortextoolkit\trunk\vortex\vxcablesystem\src\ICD\VxProducer.cpp"
+#  include="c:\src\vortextoolkit\trunk\vortex\vxcablesystem\include\VxCableSystem\ICD\VxProducer.cpp"
+
+
+
